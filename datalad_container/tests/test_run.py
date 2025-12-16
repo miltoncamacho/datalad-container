@@ -276,6 +276,44 @@ def test_extra_inputs(path=None):
     ) == set(runinfo.get("extra_inputs", set()))
 
 
+@pytest.mark.ai_generated
+@with_tree(tree={"i.img": "doesn't matter"})
+def test_run_new_params(path=None):
+    """Test that dry_run, assume_ready, and jobs parameters are passed through."""
+    ds = Dataset(path).create(force=True, **common_kwargs)
+    ds.containers_add(
+        "i",
+        image="i.img",
+        call_fmt="sh -c '{cmd}'",
+        **common_kwargs
+    )
+    ds.save(**common_kwargs)
+    ok_clean_git(path)
+
+    # Test dry_run='basic': no command should be executed
+    output_file = op.join(path, "output.txt")
+    ds.containers_run(
+        ["touch output.txt"],
+        dry_run="basic",
+        **common_kwargs
+    )
+    # The output file should NOT exist because dry_run prevents execution
+    assert_false(op.exists(output_file))
+    # Repository should still be clean (no changes made)
+    ok_clean_git(path)
+
+    # Test assume_ready and jobs together with actual execution
+    # assume_ready='inputs' skips input availability check
+    # jobs=2 sets parallelization level
+    ds.containers_run(
+        ["touch output.txt"],
+        assume_ready="inputs",
+        jobs=2,
+        **common_kwargs
+    )
+    ok_(op.exists(output_file))
+
+
 @skip_if_no_network
 @with_tree(tree={"subdir": {"in": "innards"}})
 def test_run_no_explicit_dataset(path=None):
