@@ -77,9 +77,10 @@ class ContainersRun(Interface):
     @staticmethod
     @datasetmethod(name='containers_run')
     @eval_results
-    def __call__(cmd, container_name=None, dataset=None,
-                 inputs=None, outputs=None, message=None, expand=None,
-                 explicit=False, sidecar=None):
+    def __call__(cmd, container_name=None, dataset=None, message=None,
+                 inputs=None, outputs=None, assume_ready=None, expand=None,
+                 explicit=False, sidecar=None,
+                 dry_run=None, jobs=None):
         from unittest.mock import \
             patch  # delayed, since takes long (~600ms for yoh)
         pwd, _ = get_command_pwds(dataset)
@@ -185,8 +186,11 @@ class ContainersRun(Interface):
                     inputs=inputs,
                     extra_inputs=[image_path] + extra_inputs,
                     outputs=outputs,
+                    assume_ready=assume_ready,
                     message=message,
                     expand=expand,
                     explicit=explicit,
-                    sidecar=sidecar):
+                    sidecar=sidecar,
+                    dry_run=dry_run,
+                    jobs=jobs):
                 yield r
