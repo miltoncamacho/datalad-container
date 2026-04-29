@@ -3,7 +3,9 @@
 __docformat__ = 'restructuredtext'
 
 import logging
+import os
 import os.path as op
+import shlex
 import sys
 
 from datalad.core.local.run import (
@@ -33,6 +35,7 @@ lgr = logging.getLogger("datalad.containers.containers_run")
 # inform underlying shim scripts about the original name of
 # the container
 CONTAINER_NAME_ENVVAR = 'DATALAD_CONTAINER_NAME'
+CONTAINER_DEBUG_ENVVAR = 'DATALAD_CONTAINER_DEBUG'
 
 _run_params = dict(
     Run._params_,
@@ -41,6 +44,14 @@ _run_params = dict(
         metavar="NAME",
         doc="""Specify the name of or a path to a known container to use
         for execution, in case multiple containers are configured."""),
+    container_debug=Parameter(
+        args=('--container-debug',),
+        action='store_true',
+        doc="""Emit diagnostics around the expanded container command.
+        This is useful when the containerized command appears to finish
+        cleanly, but the container runtime reports a non-zero exit code.
+        The same diagnostics can be enabled by setting
+        DATALAD_CONTAINER_DEBUG=1."""),
 )
 
 
@@ -75,12 +86,43 @@ class ContainersRun(Interface):
     on_failure = 'stop'
 
     @staticmethod
+    def _debug_wrap_command(cmd, container, pwd):
+        """Wrap a shell command to report the status returned by the runtime."""
+        details = [
+            ("container", container.get("name", "<unknown>")),
+            ("image", container.get("path", "<unknown>")),
+            ("cwd", pwd),
+            ("cmdexec", container.get("cmdexec", "<default>")),
+            ("expanded command", cmd),
+        ]
+        header = "".join(
+            "printf '%s\\n' " + shlex.quote(
+                "[datalad-container-debug] {}: {}".format(key, value))
+            + " >&2; "
+            for key, value in details
+        )
+        runner = (
+            "rc=$?; "
+            "printf '%s\\n' "
+            "'[datalad-container-debug] exit code: '\"$rc\" >&2; "
+            "if [ \"$rc\" -ge 128 ]; then "
+            "  sig=$((rc - 128)); "
+            "  printf '%s\\n' "
+            "'[datalad-container-debug] possible signal: '\"$sig\" >&2; "
+            "fi; "
+            "exit \"$rc\""
+        )
+        return "sh -c {} datalad-container-debug {}".format(
+            shlex.quote(header + "sh -c \"$1\"; " + runner),
+            shlex.quote(cmd))
+
+    @staticmethod
     @datasetmethod(name='containers_run')
     @eval_results
     def __call__(cmd, container_name=None, dataset=None, message=None,
                  inputs=None, outputs=None, assume_ready=None, expand=None,
                  explicit=False, sidecar=None,
-                 dry_run=None, jobs=None):
+                 dry_run=None, jobs=None, container_debug=False):
         from unittest.mock import \
             patch  # delayed, since takes long (~600ms for yoh)
         pwd, _ = get_command_pwds(dataset)
@@ -154,6 +196,9 @@ class ContainersRun(Interface):
         else:
             # just prepend and pray
             cmd = container['path'] + ' ' + cmd
+
+        if container_debug or os.environ.get(CONTAINER_DEBUG_ENVVAR):
+            cmd = ContainersRun._debug_wrap_command(cmd, container, pwd)
 
         extra_inputs = []
         for extra_input in ensure_iter(container.get("extra-input",[]), set):
