@@ -88,6 +88,9 @@ class ContainersRun(Interface):
     @staticmethod
     def _debug_wrap_command(cmd, container, pwd):
         """Wrap a shell command to report the status returned by the runtime."""
+        def escape_run_placeholders(value):
+            return str(value).replace("{", "{{").replace("}", "}}")
+
         details = [
             ("container", container.get("name", "<unknown>")),
             ("image", container.get("path", "<unknown>")),
@@ -97,7 +100,8 @@ class ContainersRun(Interface):
         ]
         header = "".join(
             "printf '%s\\n' " + shlex.quote(
-                "[datalad-container-debug] {}: {}".format(key, value))
+                "[datalad-container-debug] {}: {}".format(
+                    key, escape_run_placeholders(value)))
             + " >&2; "
             for key, value in details
         )
